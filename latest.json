@@ -1,0 +1,28 @@
+{
+  "device1": {
+    "heart_rate": 120,
+    "acc": {
+      "x": null,
+      "y": null,
+      "z": null
+    },
+    "gps": {
+      "lat": null,
+      "lon": null
+    },
+    "timestamp": 1765212912
+  },
+  "web_device_1": {
+    "heart_rate": 127,
+    "acc": {
+      "x": 0.6355129323247501,
+      "y": 0.9671506421037224,
+      "z": -0.3558424777575231
+    },
+    "gps": {
+      "lat": 33.6844,
+      "lon": 73.0479
+    },
+    "timestamp": 1765392444
+  }
+}
