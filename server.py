@@ -185,5 +185,5 @@ def live(device_id):
     return jsonify(latest.get(str(device_id), {}))
 
 if __name__ == "__main__":
-    # When running locally: set environment variables SMTP_USER and SMTP_PASS (see README instructions)
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    port = int(os.getenv("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
