@@ -7,6 +7,8 @@ import os, json, time
 from dotenv import load_dotenv
 import smtplib
 from email.message import EmailMessage
+import threading
+import traceback
 
 load_dotenv()  # loads .env if present
 app = Flask(__name__)
@@ -44,32 +46,38 @@ if not os.path.exists(LATEST_FILE):
     save_json(LATEST_FILE, {})
 
 # === Email sending (supports Gmail SMTP or other SMTP) ===
-def send_email(to_emails, subject, body):
-    """
-    to_emails: list of email addresses
-    """
-    if not SMTP_USER or not SMTP_PASS:
-        print("SMTP credentials not configured; skipping email send.")
-        return False
+def send_email_async(to_emails, subject, body):
+    """Send email in background thread to avoid timeout"""
+    def send():
+        try:
+            if not SMTP_USER or not SMTP_PASS:
+                print("SMTP credentials not configured; skipping email send.")
+                return False
 
-    try:
-        msg = EmailMessage()
-        msg["From"] = SMTP_USER
-        msg["To"] = ", ".join(to_emails)
-        msg["Subject"] = subject
-        msg.set_content(body)
+            msg = EmailMessage()
+            msg["From"] = SMTP_USER
+            msg["To"] = ", ".join(to_emails)
+            msg["Subject"] = subject
+            msg.set_content(body)
 
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as smtp:
-            smtp.ehlo()
-            if SMTP_PORT == 587:
-                smtp.starttls()
-            smtp.login(SMTP_USER, SMTP_PASS)
-            smtp.send_message(msg)
-        print(f"Sent email to {to_emails}")
-        return True
-    except Exception as e:
-        print("Error sending email:", e)
-        return False
+            # Set timeout for SMTP operations
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as smtp:
+                smtp.ehlo()
+                if SMTP_PORT == 587:
+                    smtp.starttls()
+                smtp.login(SMTP_USER, SMTP_PASS)
+                smtp.send_message(msg)
+            print(f"✓ Email sent to {to_emails}")
+            return True
+        except Exception as e:
+            print(f"✗ Error sending email: {e}")
+            return False
+    
+    # Start email in background thread
+    thread = threading.Thread(target=send)
+    thread.daemon = True
+    thread.start()
+    return True  # Return immediately, don't wait for email
 
 # === API Endpoints ===
 @app.route("/", methods=["GET"])
@@ -82,15 +90,19 @@ def save_contacts(device_id):
     Save contacts for a device or user.
     Body JSON: {"emails": ["a@example.com","b@example.com"]}
     """
-    data = request.get_json() or {}
-    emails = data.get("emails", [])
-    if not isinstance(emails, list):
-        return jsonify({"error": "emails must be a list"}), 400
+    try:
+        data = request.get_json() or {}
+        emails = data.get("emails", [])
+        if not isinstance(emails, list):
+            return jsonify({"error": "emails must be a list"}), 400
 
-    contacts = load_json(CONTACTS_FILE, {})
-    contacts[str(device_id)] = emails
-    save_json(CONTACTS_FILE, contacts)
-    return jsonify({"ok": True, "saved": emails})
+        contacts = load_json(CONTACTS_FILE, {})
+        contacts[str(device_id)] = emails
+        save_json(CONTACTS_FILE, contacts)
+        return jsonify({"ok": True, "saved": emails})
+    except Exception as e:
+        print(f"Error in save_contacts: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.route("/contacts/<device_id>", methods=["GET"])
 def get_contacts(device_id):
@@ -99,32 +111,38 @@ def get_contacts(device_id):
 
 @app.route("/ingest", methods=["POST"])
 def ingest():
-    data = request.get_json() or {}
-    device = str(data.get("device_id", "default"))
-    hr = data.get("heart_rate")
-    acc = {"x": data.get("acc_x"), "y": data.get("acc_y"), "z": data.get("acc_z")}
-    gps = {"lat": data.get("gps_lat"), "lon": data.get("gps_lon")}
-    ts = data.get("timestamp", int(time.time()))
-    
-    # Save latest data
-    latest = load_json(LATEST_FILE, {})
-    latest[device] = {
-        "heart_rate": hr,
-        "acc": acc,
-        "gps": gps,
-        "timestamp": ts,
-        "stress_score": data.get("stress_score"),
-        "stress_level": data.get("stress_level"),
-        "spo2": data.get("spo2"),
-        "temperature": data.get("temperature"),
-        "movement": data.get("movement"),
-        "emotion": data.get("emotion"),
-        "is_emergency": data.get("is_emergency", False)
-    }
-    save_json(LATEST_FILE, latest)
-    
-    # High stress alert
+    """Endpoint for Raspberry Pi to POST sensor data"""
     try:
+        data = request.get_json() or {}
+        print(f"📥 Received data from device: {data.get('device_id', 'unknown')}")
+        
+        device = str(data.get("device_id", "default"))
+        hr = data.get("heart_rate")
+        acc = {"x": data.get("acc_x"), "y": data.get("acc_y"), "z": data.get("acc_z")}
+        gps = {"lat": data.get("gps_lat"), "lon": data.get("gps_lon")}
+        ts = data.get("timestamp", int(time.time()))
+        
+        # Save latest data (FAST - no email yet)
+        latest = load_json(LATEST_FILE, {})
+        latest[device] = {
+            "heart_rate": hr,
+            "acc": acc,
+            "gps": gps,
+            "timestamp": ts,
+            "stress_score": data.get("stress_score"),
+            "stress_level": data.get("stress_level"),
+            "spo2": data.get("spo2"),
+            "temperature": data.get("temperature"),
+            "movement": data.get("movement"),
+            "emotion": data.get("emotion"),
+            "is_emergency": data.get("is_emergency", False)
+        }
+        save_json(LATEST_FILE, latest)
+        
+        print(f"💾 Saved data for device: {device}, HR: {hr}")
+        
+        # Check for high stress (but don't send email in main thread)
+        alert_sent = False
         if hr is not None and float(hr) >= HR_THRESHOLD:
             contacts = load_json(CONTACTS_FILE, {}).get(device, [])
             if contacts:
@@ -133,36 +151,51 @@ def ingest():
                 if gps.get("lat") and gps.get("lon"):
                     body += f"Location: https://maps.google.com/?q={gps['lat']},{gps['lon']}\n\n"
                 body += f"Timestamp: {ts}\n\nSent by Stress Detection System."
-                send_email(contacts, subject, body)
+                
+                # Send email in background (async)
+                send_email_async(contacts, subject, body)
+                alert_sent = True
+                print(f"🚨 High stress alert triggered for {device}")
             else:
-                print(f"No contacts configured for device {device}.")
-            return jsonify({"ok": True, "alert_sent": True})
+                print(f"⚠️ No contacts configured for device {device}")
+        
+        # Return response IMMEDIATELY (don't wait for email)
+        return jsonify({
+            "ok": True, 
+            "alert_sent": alert_sent,
+            "message": "Data received successfully"
+        })
+        
     except Exception as e:
-        print("Error checking HR threshold:", e)
-    
-    return jsonify({"ok": True, "alert_sent": False})
+        print(f"❌ Error in /ingest: {e}")
+        print(traceback.format_exc())
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.route("/notify", methods=["POST"])
 def notify():
     """
     Manual notify endpoint from frontend.
-    Body: {"device_id":"device1","subject":"...","message":"...","emails":["a@..."]}
-    If emails field present, they will be used; otherwise uses saved contacts.
     """
-    data = request.get_json() or {}
-    device = str(data.get("device_id", "default"))
-    subject = data.get("subject", "Alert from device")
-    message = data.get("message", "")
-    emails = data.get("emails")
-    
-    if emails is None:
-        emails = load_json(CONTACTS_FILE, {}).get(device, [])
-    
-    if not emails:
-        return jsonify({"ok": False, "error": "No recipient emails"}), 400
-    
-    ok = send_email(emails, subject, message)
-    return jsonify({"ok": ok})
+    try:
+        data = request.get_json() or {}
+        device = str(data.get("device_id", "default"))
+        subject = data.get("subject", "Alert from device")
+        message = data.get("message", "")
+        emails = data.get("emails")
+        
+        if emails is None:
+            emails = load_json(CONTACTS_FILE, {}).get(device, [])
+        
+        if not emails:
+            return jsonify({"ok": False, "error": "No recipient emails"}), 400
+        
+        # Send email in background
+        send_email_async(emails, subject, message)
+        return jsonify({"ok": True, "message": "Email queued for sending"})
+        
+    except Exception as e:
+        print(f"Error in /notify: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 @app.route("/live/<device_id>", methods=["GET"])
 def live(device_id):
@@ -171,4 +204,4 @@ def live(device_id):
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=port, debug=False)
