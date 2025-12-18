@@ -14,20 +14,20 @@ load_dotenv()  # loads .env if present
 app = Flask(__name__)
 CORS(app)
 
-# === Config (set these as environment variables, see instructions below) ===
+# === Config (set these as environment variables) ===
 SMTP_USER = os.getenv("SMTP_USER")     # your email address (e.g. gmail)
 SMTP_PASS = os.getenv("SMTP_PASS")     # app password for gmail or SMTP password
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
 
-# Threshold for "high stress" — you can tune this
+# Threshold for "high stress"
 HR_THRESHOLD = int(os.getenv("HR_THRESHOLD", 105))
 
 # Data files
 CONTACTS_FILE = "contacts.json"   # stores contact emails per user/device
 LATEST_FILE = "latest.json"       # stores latest sensor reading(s)
 
-# Helper: load/save JSON files
+# === Helper functions: load/save JSON files ===
 def load_json(path, default):
     try:
         with open(path, "r") as f:
@@ -101,16 +101,11 @@ def get_contacts(device_id):
     return jsonify(contacts.get(str(device_id), []))
 
 @app.route("/ingest", methods=["POST"])
-@app.route("/ingest", methods=["POST"])
 def ingest():
     data = request.get_json() or {}
     device = str(data.get("device_id", "default"))
     hr = data.get("heart_rate")
-    acc = {
-        "x": data.get("acc_x"),
-        "y": data.get("acc_y"),
-        "z": data.get("acc_z")
-    }
+    acc = {"x": data.get("acc_x"), "y": data.get("acc_y"), "z": data.get("acc_z")}
     gps = {"lat": data.get("gps_lat"), "lon": data.get("gps_lon")}
     ts = data.get("timestamp", int(time.time()))
 
@@ -131,7 +126,7 @@ def ingest():
     }
     save_json(LATEST_FILE, latest)
 
-    # Check for high stress
+    # High stress alert
     try:
         if hr is not None and float(hr) >= HR_THRESHOLD:
             contacts = load_json(CONTACTS_FILE, {}).get(device, [])
@@ -149,27 +144,6 @@ def ingest():
         print("Error checking HR threshold:", e)
 
     return jsonify({"ok": True, "alert_sent": False})
-
-
-    # Check for high stress based on heart rate threshold
-    try:
-        if hr is not None and float(hr) >= HR_THRESHOLD:
-            # Send email alert to saved contacts
-            contacts = load_json(CONTACTS_FILE, {}).get(device, [])
-            if contacts:
-                subject = f"ALERT: High stress detected on device {device}"
-                body = f"High heart rate detected: {hr} BPM\n\n"
-                if gps.get("lat") and gps.get("lon"):
-                    body += f"Location: https://maps.google.com/?q={gps['lat']},{gps['lon']}\n\n"
-                body += f"Timestamp: {ts}\n\nSent by Stress Detection System."
-                send_email(contacts, subject, body)
-            else:
-                print(f"No contacts configured for device {device}.")
-            return jsonify({"ok":True, "alert_sent": True})
-    except Exception as e:
-        print("Error checking HR threshold:", e)
-
-    return jsonify({"ok":True, "alert_sent": False})
 
 @app.route("/notify", methods=["POST"])
 def notify():
