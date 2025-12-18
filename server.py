@@ -101,21 +101,8 @@ def get_contacts(device_id):
     return jsonify(contacts.get(str(device_id), []))
 
 @app.route("/ingest", methods=["POST"])
+@app.route("/ingest", methods=["POST"])
 def ingest():
-    """
-    Endpoint for Raspberry Pi to POST sensor data.
-    Expected JSON:
-    {
-      "device_id": "device1",
-      "heart_rate": 92,
-      "acc_x": 0.01,
-      "acc_y": -0.02,
-      "acc_z": 0.15,
-      "gps_lat": 35.3629,     # optional
-      "gps_lon": 74.6911,     # optional
-      "timestamp": 1690000000 # optional epoch
-    }
-    """
     data = request.get_json() or {}
     device = str(data.get("device_id", "default"))
     hr = data.get("heart_rate")
@@ -127,15 +114,42 @@ def ingest():
     gps = {"lat": data.get("gps_lat"), "lon": data.get("gps_lon")}
     ts = data.get("timestamp", int(time.time()))
 
-    # Save latest
+    # Save latest data
     latest = load_json(LATEST_FILE, {})
     latest[device] = {
         "heart_rate": hr,
         "acc": acc,
         "gps": gps,
-        "timestamp": ts
+        "timestamp": ts,
+        "stress_score": data.get("stress_score"),
+        "stress_level": data.get("stress_level"),
+        "spo2": data.get("spo2"),
+        "temperature": data.get("temperature"),
+        "movement": data.get("movement"),
+        "emotion": data.get("emotion"),
+        "is_emergency": data.get("is_emergency", False)
     }
     save_json(LATEST_FILE, latest)
+
+    # Check for high stress
+    try:
+        if hr is not None and float(hr) >= HR_THRESHOLD:
+            contacts = load_json(CONTACTS_FILE, {}).get(device, [])
+            if contacts:
+                subject = f"ALERT: High stress detected on device {device}"
+                body = f"High heart rate detected: {hr} BPM\n\n"
+                if gps.get("lat") and gps.get("lon"):
+                    body += f"Location: https://maps.google.com/?q={gps['lat']},{gps['lon']}\n\n"
+                body += f"Timestamp: {ts}\n\nSent by Stress Detection System."
+                send_email(contacts, subject, body)
+            else:
+                print(f"No contacts configured for device {device}.")
+            return jsonify({"ok": True, "alert_sent": True})
+    except Exception as e:
+        print("Error checking HR threshold:", e)
+
+    return jsonify({"ok": True, "alert_sent": False})
+
 
     # Check for high stress based on heart rate threshold
     try:
