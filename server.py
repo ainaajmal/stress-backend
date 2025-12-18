@@ -1,6 +1,5 @@
 # server.py — simple backend for ingesting sensor data, storing latest values,
 # and sending email notifications to saved contact emails.
-# Save at: D:\StressDetectionProject\backend\server.py
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -10,13 +9,12 @@ import smtplib
 from email.message import EmailMessage
 
 load_dotenv()  # loads .env if present
-
 app = Flask(__name__)
 CORS(app)
 
 # === Config (set these as environment variables) ===
-SMTP_USER = os.getenv("SMTP_USER")     # your email address (e.g. gmail)
-SMTP_PASS = os.getenv("SMTP_PASS")     # app password for gmail or SMTP password
+SMTP_USER = os.getenv("SMTP_USER")  # your email address (e.g. gmail)
+SMTP_PASS = os.getenv("SMTP_PASS")  # app password for gmail or SMTP password
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
 
@@ -24,8 +22,8 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
 HR_THRESHOLD = int(os.getenv("HR_THRESHOLD", 105))
 
 # Data files
-CONTACTS_FILE = "contacts.json"   # stores contact emails per user/device
-LATEST_FILE = "latest.json"       # stores latest sensor reading(s)
+CONTACTS_FILE = "contacts.json"  # stores contact emails per user/device
+LATEST_FILE = "latest.json"  # stores latest sensor reading(s)
 
 # === Helper functions: load/save JSON files ===
 def load_json(path, default):
@@ -74,10 +72,9 @@ def send_email(to_emails, subject, body):
         return False
 
 # === API Endpoints ===
-
 @app.route("/", methods=["GET"])
 def root():
-    return {"status":"ok", "message":"Stress backend running"}
+    return {"status": "ok", "message": "Stress backend running"}
 
 @app.route("/contacts/<device_id>", methods=["POST"])
 def save_contacts(device_id):
@@ -88,12 +85,12 @@ def save_contacts(device_id):
     data = request.get_json() or {}
     emails = data.get("emails", [])
     if not isinstance(emails, list):
-        return jsonify({"error":"emails must be a list"}), 400
+        return jsonify({"error": "emails must be a list"}), 400
 
     contacts = load_json(CONTACTS_FILE, {})
     contacts[str(device_id)] = emails
     save_json(CONTACTS_FILE, contacts)
-    return jsonify({"ok":True, "saved":emails})
+    return jsonify({"ok": True, "saved": emails})
 
 @app.route("/contacts/<device_id>", methods=["GET"])
 def get_contacts(device_id):
@@ -108,7 +105,7 @@ def ingest():
     acc = {"x": data.get("acc_x"), "y": data.get("acc_y"), "z": data.get("acc_z")}
     gps = {"lat": data.get("gps_lat"), "lon": data.get("gps_lon")}
     ts = data.get("timestamp", int(time.time()))
-
+    
     # Save latest data
     latest = load_json(LATEST_FILE, {})
     latest[device] = {
@@ -125,7 +122,7 @@ def ingest():
         "is_emergency": data.get("is_emergency", False)
     }
     save_json(LATEST_FILE, latest)
-
+    
     # High stress alert
     try:
         if hr is not None and float(hr) >= HR_THRESHOLD:
@@ -142,14 +139,14 @@ def ingest():
             return jsonify({"ok": True, "alert_sent": True})
     except Exception as e:
         print("Error checking HR threshold:", e)
-
+    
     return jsonify({"ok": True, "alert_sent": False})
 
 @app.route("/notify", methods=["POST"])
 def notify():
     """
     Manual notify endpoint from frontend.
-    Body: {"device_id":"device1","subject":"...","message":"...", "emails":["a@.."]}
+    Body: {"device_id":"device1","subject":"...","message":"...","emails":["a@..."]}
     If emails field present, they will be used; otherwise uses saved contacts.
     """
     data = request.get_json() or {}
@@ -157,13 +154,13 @@ def notify():
     subject = data.get("subject", "Alert from device")
     message = data.get("message", "")
     emails = data.get("emails")
-
+    
     if emails is None:
         emails = load_json(CONTACTS_FILE, {}).get(device, [])
-
+    
     if not emails:
-        return jsonify({"ok":False, "error":"No recipient emails"}), 400
-
+        return jsonify({"ok": False, "error": "No recipient emails"}), 400
+    
     ok = send_email(emails, subject, message)
     return jsonify({"ok": ok})
 
