@@ -7,6 +7,8 @@ import os, json, time
 from dotenv import load_dotenv
 import threading
 import traceback
+import smtplib
+from email.message import EmailMessage
 
 load_dotenv()  # loads .env if present
 app = Flask(__name__)
@@ -45,13 +47,62 @@ if not os.path.exists(LATEST_FILE):
 
 # === Email sending (LOG ONLY - fix timeout) ===
 def send_email_async(to_emails, subject, body):
-    """Log email instead of sending (temporarily fix timeout)"""
-    print(f"📧 [EMAIL ALERT] To: {to_emails}")
-    print(f"   Subject: {subject}")
-    print(f"   Body: {body[:100]}..." if len(body) > 100 else f"   Body: {body}")
-    print(f"   Status: Would send if SMTP configured properly")
-    return True  # Pretend success
+    """Send email using Gmail SMTP with detailed logging"""
+    def send():
+        try:
+            print(f"🔧 DEBUG EMAIL START ==========================")
+            print(f"SMTP_USER configured: {'YES' if SMTP_USER else 'NO'}")
+            print(f"SMTP_PASS configured: {'YES' if SMTP_PASS and len(SMTP_PASS) > 0 else 'NO'}")
+            print(f"SMTP_PASS length: {len(SMTP_PASS) if SMTP_PASS else 0}")
+            print(f"To emails: {to_emails}")
+            print(f"Subject: {subject}")
+            
+            if not SMTP_USER or not SMTP_PASS:
+                print("❌ SMTP credentials missing")
+                return False
 
+            msg = EmailMessage()
+            msg["From"] = SMTP_USER
+            msg["To"] = ", ".join(to_emails)
+            msg["Subject"] = subject
+            msg.set_content(body)
+
+            print(f"📧 Attempting to connect to {SMTP_HOST}:{SMTP_PORT}")
+            
+            # Gmail SMTP with timeout
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as smtp:
+                print("✓ Connected to SMTP server")
+                smtp.ehlo()
+                print("✓ EHLO complete")
+                
+                if SMTP_PORT == 587:
+                    smtp.starttls()
+                    print("✓ STARTTLS complete")
+                
+                print("🔐 Attempting login...")
+                smtp.login(SMTP_USER, SMTP_PASS)
+                print("✓ Login successful")
+                
+                print("📤 Sending message...")
+                smtp.send_message(msg)
+                print("✓ Message sent")
+            
+            print(f"✅ Email successfully sent to {to_emails}")
+            print(f"🔧 DEBUG EMAIL END ============================")
+            return True
+            
+        except Exception as e:
+            print(f"❌ ERROR sending email: {type(e).__name__}: {e}")
+            import traceback
+            print("Full traceback:")
+            print(traceback.format_exc())
+            print(f"🔧 DEBUG EMAIL END ============================")
+            return False
+    
+    thread = threading.Thread(target=send)
+    thread.daemon = True
+    thread.start()
+    return True
 # === API Endpoints ===
 @app.route("/", methods=["GET"])
 def root():
