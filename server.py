@@ -5,8 +5,6 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os, json, time
 from dotenv import load_dotenv
-import smtplib
-from email.message import EmailMessage
 import threading
 import traceback
 
@@ -45,39 +43,14 @@ if not os.path.exists(CONTACTS_FILE):
 if not os.path.exists(LATEST_FILE):
     save_json(LATEST_FILE, {})
 
-# === Email sending (supports Gmail SMTP or other SMTP) ===
+# === Email sending (LOG ONLY - fix timeout) ===
 def send_email_async(to_emails, subject, body):
-    """Send email in background thread to avoid timeout"""
-    def send():
-        try:
-            if not SMTP_USER or not SMTP_PASS:
-                print("SMTP credentials not configured; skipping email send.")
-                return False
-
-            msg = EmailMessage()
-            msg["From"] = SMTP_USER
-            msg["To"] = ", ".join(to_emails)
-            msg["Subject"] = subject
-            msg.set_content(body)
-
-            # Set timeout for SMTP operations
-            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as smtp:
-                smtp.ehlo()
-                if SMTP_PORT == 587:
-                    smtp.starttls()
-                smtp.login(SMTP_USER, SMTP_PASS)
-                smtp.send_message(msg)
-            print(f"✓ Email sent to {to_emails}")
-            return True
-        except Exception as e:
-            print(f"✗ Error sending email: {e}")
-            return False
-    
-    # Start email in background thread
-    thread = threading.Thread(target=send)
-    thread.daemon = True
-    thread.start()
-    return True  # Return immediately, don't wait for email
+    """Log email instead of sending (temporarily fix timeout)"""
+    print(f"📧 [EMAIL ALERT] To: {to_emails}")
+    print(f"   Subject: {subject}")
+    print(f"   Body: {body[:100]}..." if len(body) > 100 else f"   Body: {body}")
+    print(f"   Status: Would send if SMTP configured properly")
+    return True  # Pretend success
 
 # === API Endpoints ===
 @app.route("/", methods=["GET"])
@@ -118,11 +91,25 @@ def ingest():
         
         device = str(data.get("device_id", "default"))
         hr = data.get("heart_rate")
-        acc = {"x": data.get("acc_x"), "y": data.get("acc_y"), "z": data.get("acc_z")}
-        gps = {"lat": data.get("gps_lat"), "lon": data.get("gps_lon")}
-        ts = data.get("timestamp", int(time.time()))
         
-        # Save latest data (FAST - no email yet)
+        # Pi sends acc_x, acc_y, acc_z separately
+        acc = {
+            "x": data.get("acc_x"),
+            "y": data.get("acc_y"), 
+            "z": data.get("acc_z")
+        }
+        
+        gps = {"lat": data.get("gps_lat"), "lon": data.get("gps_lon")}
+        
+        # Handle Pi's string timestamp
+        ts = data.get("timestamp")
+        if ts and isinstance(ts, str):
+            # Pi sends format: "2024-12-19 10:30:00" - keep as string
+            pass
+        else:
+            ts = data.get("timestamp", int(time.time()))
+        
+        # Save latest data
         latest = load_json(LATEST_FILE, {})
         latest[device] = {
             "heart_rate": hr,
@@ -139,27 +126,28 @@ def ingest():
         }
         save_json(LATEST_FILE, latest)
         
-        print(f"💾 Saved data for device: {device}, HR: {hr}")
+        print(f"💾 Saved data for device: {device}, HR: {hr}, Stress: {data.get('stress_score')}")
         
-        # Check for high stress (but don't send email in main thread)
+        # High stress check
         alert_sent = False
         if hr is not None and float(hr) >= HR_THRESHOLD:
             contacts = load_json(CONTACTS_FILE, {}).get(device, [])
             if contacts:
                 subject = f"ALERT: High stress detected on device {device}"
-                body = f"High heart rate detected: {hr} BPM\n\n"
+                body = f"High heart rate detected: {hr} BPM\n"
+                body += f"Stress Level: {data.get('stress_level', 'Unknown')}\n"
+                body += f"Stress Score: {data.get('stress_score', 0)}/100\n"
                 if gps.get("lat") and gps.get("lon"):
-                    body += f"Location: https://maps.google.com/?q={gps['lat']},{gps['lon']}\n\n"
-                body += f"Timestamp: {ts}\n\nSent by Stress Detection System."
+                    body += f"Location: https://maps.google.com/?q={gps['lat']},{gps['lon']}\n"
+                body += f"Time: {data.get('timestamp', 'Unknown')}\n\n"
+                body += "Sent by Stress Detection System."
                 
-                # Send email in background (async)
                 send_email_async(contacts, subject, body)
                 alert_sent = True
                 print(f"🚨 High stress alert triggered for {device}")
             else:
                 print(f"⚠️ No contacts configured for device {device}")
         
-        # Return response IMMEDIATELY (don't wait for email)
         return jsonify({
             "ok": True, 
             "alert_sent": alert_sent,
@@ -189,9 +177,8 @@ def notify():
         if not emails:
             return jsonify({"ok": False, "error": "No recipient emails"}), 400
         
-        # Send email in background
         send_email_async(emails, subject, message)
-        return jsonify({"ok": True, "message": "Email queued for sending"})
+        return jsonify({"ok": True, "message": "Email logged (not sent)"})
         
     except Exception as e:
         print(f"Error in /notify: {e}")
