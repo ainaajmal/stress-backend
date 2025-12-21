@@ -46,9 +46,15 @@ if not os.path.exists(LATEST_FILE):
     save_json(LATEST_FILE, {})
 
 # === Email sending (FIXED FOR RAILWAY - port 465 with SSL) ===
+# server.py — fixed email function
+
+# ... (previous code remains the same) ...
+
+# === Email sending (FIXED!) ===
 def send_email_async(to_emails, subject, body):
-    """Send email using Gmail SMTP with SSL (port 465) for Railway"""
+    """Send email using Gmail SMTP with SSL (port 465) for Railway - FIXED VERSION"""
     def send():
+        success = False  # Track success status
         try:
             print(f"🔧 DEBUG EMAIL START ==========================")
             print(f"SMTP_USER configured: {'YES' if SMTP_USER else 'NO'}")
@@ -69,7 +75,7 @@ def send_email_async(to_emails, subject, body):
 
             print(f"📧 Attempting to connect to {SMTP_HOST}:{SMTP_PORT}")
             
-            # FIXED: Use SMTP_SSL for Railway (port 465)
+            # Use SMTP_SSL for Railway (port 465)
             if SMTP_PORT == 465:
                 print("🔒 Using SSL encryption (port 465)...")
                 with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15) as smtp:
@@ -84,9 +90,10 @@ def send_email_async(to_emails, subject, body):
                     print("📤 Sending message...")
                     smtp.send_message(msg)
                     print("✅ Message sent")
+                    success = True
             elif SMTP_PORT == 587:
-                # Fallback for port 587 (not recommended on Railway)
-                print("⚠️ Using STARTTLS (port 587) - may be blocked on Railway")
+                # Fallback for port 587
+                print("⚠️ Using STARTTLS (port 587)")
                 with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as smtp:
                     print("✅ Connected to SMTP server")
                     smtp.ehlo()
@@ -103,6 +110,7 @@ def send_email_async(to_emails, subject, body):
                     print("📤 Sending message...")
                     smtp.send_message(msg)
                     print("✅ Message sent")
+                    success = True
             else:
                 print(f"❌ Unsupported SMTP port: {SMTP_PORT}")
                 return False
@@ -114,24 +122,27 @@ def send_email_async(to_emails, subject, body):
         except smtplib.SMTPAuthenticationError as e:
             print(f"❌ SMTP Authentication Error: {e}")
             print("Check: 1) Gmail App Password 2) Less secure app access")
+            return False
         except smtplib.SMTPException as e:
             print(f"❌ SMTP Error: {type(e).__name__}: {e}")
+            return False
         except ConnectionError as e:
             print(f"❌ Connection Error: {e}")
             print("Railway may be blocking SMTP. Try port 465 with SSL.")
+            return False
         except Exception as e:
             print(f"❌ Unexpected Error: {type(e).__name__}: {e}")
-            import traceback
             print("Full traceback:")
             print(traceback.format_exc())
+            return False
         finally:
             print(f"🔧 DEBUG EMAIL END ============================")
-            return False
+            # NO RETURN STATEMENT HERE - Just cleanup
     
     thread = threading.Thread(target=send)
     thread.daemon = True
     thread.start()
-    return True
+    return True  # Always returns True for async operation
 
 # === API Endpoints ===
 @app.route("/", methods=["GET"])
