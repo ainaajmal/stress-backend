@@ -46,15 +46,9 @@ if not os.path.exists(LATEST_FILE):
     save_json(LATEST_FILE, {})
 
 # === Email sending (FIXED FOR RAILWAY - port 465 with SSL) ===
-# server.py — fixed email function
-
-# ... (previous code remains the same) ...
-
-# === Email sending (FIXED!) ===
 def send_email_async(to_emails, subject, body):
     """Send email using Gmail SMTP with SSL (port 465) for Railway - FIXED VERSION"""
     def send():
-        success = False  # Track success status
         try:
             print(f"🔧 DEBUG EMAIL START ==========================")
             print(f"SMTP_USER configured: {'YES' if SMTP_USER else 'NO'}")
@@ -65,7 +59,7 @@ def send_email_async(to_emails, subject, body):
             
             if not SMTP_USER or not SMTP_PASS:
                 print("❌ SMTP credentials missing")
-                return False
+                return
 
             msg = EmailMessage()
             msg["From"] = SMTP_USER
@@ -90,7 +84,6 @@ def send_email_async(to_emails, subject, body):
                     print("📤 Sending message...")
                     smtp.send_message(msg)
                     print("✅ Message sent")
-                    success = True
             elif SMTP_PORT == 587:
                 # Fallback for port 587
                 print("⚠️ Using STARTTLS (port 587)")
@@ -110,31 +103,24 @@ def send_email_async(to_emails, subject, body):
                     print("📤 Sending message...")
                     smtp.send_message(msg)
                     print("✅ Message sent")
-                    success = True
             else:
                 print(f"❌ Unsupported SMTP port: {SMTP_PORT}")
-                return False
+                return
             
             print(f"🎉 Email successfully sent to {to_emails}")
-            print(f"🔧 DEBUG EMAIL END ============================")
-            return True
             
         except smtplib.SMTPAuthenticationError as e:
             print(f"❌ SMTP Authentication Error: {e}")
             print("Check: 1) Gmail App Password 2) Less secure app access")
-            return False
         except smtplib.SMTPException as e:
             print(f"❌ SMTP Error: {type(e).__name__}: {e}")
-            return False
         except ConnectionError as e:
             print(f"❌ Connection Error: {e}")
             print("Railway may be blocking SMTP. Try port 465 with SSL.")
-            return False
         except Exception as e:
             print(f"❌ Unexpected Error: {type(e).__name__}: {e}")
             print("Full traceback:")
             print(traceback.format_exc())
-            return False
         finally:
             print(f"🔧 DEBUG EMAIL END ============================")
             # NO RETURN STATEMENT HERE - Just cleanup

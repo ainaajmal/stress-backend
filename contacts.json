@@ -1,12 +1,7 @@
-{
-  "device1": [
-    "friend1@gmail.com",
-    "friend2@gmail.com"
-  ],
-  "web_device_1": [
-    "m.amjadd135@gmail.com"
-  ],
-  "raspberry_pi_1": [
-    "m.amjadd135@gmail.com"
-  ]
+ {
+  "device1": ["friend1@gmail.com", "friend2@gmail.com"],
+  "web_device_1": ["m.amjadd135@gmail.com"],
+  "raspberry_pi_1": ["m.amjadd135@gmail.com"],
+  "user_abc123": ["mom@gmail.com", "dad@gmail.com"],
+  "user_xyz789": ["sister@gmail.com", "brother@gmail.com"]
 }
