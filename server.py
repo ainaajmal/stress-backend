@@ -17,11 +17,39 @@ CORS(app)
 
 # === Configuration ===
 # === Configuration ===
-SMTP_USER = os.getenv("SMTP_USER")
-SMTP_PASS = os.getenv("SMTP_PASS")
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))  # <- QUOTES ADDED
-HR_THRESHOLD = int(os.getenv("HR_THRESHOLD", "85"))  # <- QUOTES ADDED
+# === Configuration ===
+# Lazy loading to avoid Railway build errors
+_SMTP_CONFIG = {
+    "user": os.getenv("SMTP_USER", ""),
+    "password": os.getenv("SMTP_PASS", ""),
+    "host": os.getenv("SMTP_HOST", "smtp.gmail.com"),
+    "port_str": os.getenv("SMTP_PORT", "465"),
+    "threshold_str": os.getenv("HR_THRESHOLD", "85")
+}
+
+def get_smtp_port():
+    """Get SMTP port as integer (lazy loaded)"""
+    try:
+        return int(_SMTP_CONFIG["port_str"])
+    except (ValueError, TypeError):
+        return 465
+
+def get_hr_threshold():
+    """Get heart rate threshold as integer (lazy loaded)"""
+    try:
+        return int(_SMTP_CONFIG["threshold_str"])
+    except (ValueError, TypeError):
+        return 85
+
+# Simple getters for other values
+def get_smtp_user():
+    return _SMTP_CONFIG["user"]
+
+def get_smtp_pass():
+    return _SMTP_CONFIG["password"]
+
+def get_smtp_host():
+    return _SMTP_CONFIG["host"]
 
 CONTACTS_FILE = "contacts.json"
 LATEST_FILE = "latest.json"
