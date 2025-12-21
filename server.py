@@ -16,11 +16,12 @@ app = Flask(__name__)
 CORS(app)
 
 # === Configuration ===
+# === Configuration ===
 SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
-HR_THRESHOLD = int(os.getenv("HR_THRESHOLD", 85))
+SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))  # <- QUOTES ADDED
+HR_THRESHOLD = int(os.getenv("HR_THRESHOLD", "85"))  # <- QUOTES ADDED
 
 CONTACTS_FILE = "contacts.json"
 LATEST_FILE = "latest.json"
