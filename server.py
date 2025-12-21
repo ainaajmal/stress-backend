@@ -3,149 +3,54 @@
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import os
-import json
-import time
+import os, json, time
+from dotenv import load_dotenv
 import threading
 import traceback
 import smtplib
 from email.message import EmailMessage
-from typing import Dict, List, Any, Optional
 
+load_dotenv()  # loads .env if present
 app = Flask(__name__)
 CORS(app)
 
-# === Configuration ===
-# === Configuration ===
-# === Configuration ===
-# Lazy loading to avoid Railway build errors
-_SMTP_CONFIG = {
-    "user": os.getenv("SMTP_USER", ""),
-    "password": os.getenv("SMTP_PASS", ""),
-    "host": os.getenv("SMTP_HOST", "smtp.gmail.com"),
-    "port_str": os.getenv("SMTP_PORT", "465"),
-    "threshold_str": os.getenv("HR_THRESHOLD", "85")
-}
+# === Config (set these as environment variables) ===
+SMTP_USER = os.getenv("SMTP_USER")  # your email address (e.g. gmail)
+SMTP_PASS = os.getenv("SMTP_PASS")  # app password for gmail or SMTP password
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 465))  # CHANGED FROM 587 TO 465
 
-def get_smtp_port():
-    """Get SMTP port as integer (lazy loaded)"""
-    try:
-        return int(_SMTP_CONFIG["port_str"])
-    except (ValueError, TypeError):
-        return 465
+# Threshold for "high stress"
+HR_THRESHOLD = int(os.getenv("HR_THRESHOLD", 85))
 
-def get_hr_threshold():
-    """Get heart rate threshold as integer (lazy loaded)"""
-    try:
-        return int(_SMTP_CONFIG["threshold_str"])
-    except (ValueError, TypeError):
-        return 85
+# Data files
+CONTACTS_FILE = "contacts.json"  # stores contact emails per user/device
+LATEST_FILE = "latest.json"  # stores latest sensor reading(s)
 
-# Simple getters for other values
-def get_smtp_user():
-    return _SMTP_CONFIG["user"]
-
-def get_smtp_pass():
-    return _SMTP_CONFIG["password"]
-
-def get_smtp_host():
-    return _SMTP_CONFIG["host"]
-
-CONTACTS_FILE = "contacts.json"
-LATEST_FILE = "latest.json"
-
-# === Helper functions ===
-def load_json(path: str, default: Any) -> Any:
-    """Load JSON file or return default if file doesn't exist."""
+# === Helper functions: load/save JSON files ===
+def load_json(path, default):
     try:
         with open(path, "r") as f:
             return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+    except Exception:
         return default
 
-def save_json(path: str, data: Any) -> None:
-    """Save data to JSON file."""
+def save_json(path, data):
     with open(path, "w") as f:
         json.dump(data, f, indent=2)
 
-def ensure_files_exist() -> None:
-    """Ensure required data files exist."""
-    if not os.path.exists(CONTACTS_FILE):
-        save_json(CONTACTS_FILE, {})
-    if not os.path.exists(LATEST_FILE):
-        save_json(LATEST_FILE, {})
+# Ensure files exist
+if not os.path.exists(CONTACTS_FILE):
+    save_json(CONTACTS_FILE, {})
+if not os.path.exists(LATEST_FILE):
+    save_json(LATEST_FILE, {})
 
-ensure_files_exist()
-
-# === Email sending ===
-def create_email_message(to_emails: List[str], subject: str, body: str) -> Optional[EmailMessage]:
-    """Create an email message object."""
-    if not SMTP_USER or not SMTP_PASS:
-        print("❌ SMTP credentials missing")
-        return None
-    
-    msg = EmailMessage()
-    msg["From"] = SMTP_USER
-    msg["To"] = ", ".join(to_emails)
-    msg["Subject"] = subject
-    msg.set_content(body)
-    return msg
-
-def send_email_with_ssl(to_emails: List[str], subject: str, body: str) -> bool:
-    """Send email using SSL encryption (port 465)."""
-    try:
-        print("🔒 Using SSL encryption (port 465)...")
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15) as smtp:
-            print("✅ Connected to SMTP SSL server")
-            smtp.ehlo()
-            print("✅ EHLO complete")
-            
-            print("🔐 Attempting login...")
-            smtp.login(SMTP_USER, SMTP_PASS)
-            print("✅ Login successful")
-            
-            print("📤 Sending message...")
-            msg = create_email_message(to_emails, subject, body)
-            if msg:
-                smtp.send_message(msg)
-                print("✅ Message sent")
-                return True
-    except Exception as e:
-        print(f"❌ SSL Email Error: {type(e).__name__}: {e}")
-    return False
-
-def send_email_with_starttls(to_emails: List[str], subject: str, body: str) -> bool:
-    """Send email using STARTTLS (port 587)."""
-    try:
-        print("⚠️ Using STARTTLS (port 587)...")
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as smtp:
-            print("✅ Connected to SMTP server")
-            smtp.ehlo()
-            print("✅ EHLO complete")
-            
-            print("🔒 Starting TLS encryption...")
-            smtp.starttls()
-            print("✅ TLS started")
-            
-            print("🔐 Attempting login...")
-            smtp.login(SMTP_USER, SMTP_PASS)
-            print("✅ Login successful")
-            
-            print("📤 Sending message...")
-            msg = create_email_message(to_emails, subject, body)
-            if msg:
-                smtp.send_message(msg)
-                print("✅ Message sent")
-                return True
-    except Exception as e:
-        print(f"❌ STARTTLS Email Error: {type(e).__name__}: {e}")
-    return False
-
-def send_email_async(to_emails: List[str], subject: str, body: str) -> bool:
-    """Send email using appropriate SMTP method based on port."""
+# === Email sending (FIXED FOR RAILWAY - port 465 with SSL) ===
+def send_email_async(to_emails, subject, body):
+    """Send email using Gmail SMTP with SSL (port 465) for Railway"""
     def send():
         try:
-            print(f"🔧 DEBUG EMAIL START {'='*40}")
+            print(f"🔧 DEBUG EMAIL START ==========================")
             print(f"SMTP_USER configured: {'YES' if SMTP_USER else 'NO'}")
             print(f"SMTP_PASS configured: {'YES' if SMTP_PASS and len(SMTP_PASS) > 0 else 'NO'}")
             print(f"SMTP_PASS length: {len(SMTP_PASS) if SMTP_PASS else 0}")
@@ -155,32 +60,72 @@ def send_email_async(to_emails: List[str], subject: str, body: str) -> bool:
             if not SMTP_USER or not SMTP_PASS:
                 print("❌ SMTP credentials missing")
                 return False
+
+            msg = EmailMessage()
+            msg["From"] = SMTP_USER
+            msg["To"] = ", ".join(to_emails)
+            msg["Subject"] = subject
+            msg.set_content(body)
+
+            print(f"📧 Attempting to connect to {SMTP_HOST}:{SMTP_PORT}")
             
-            success = False
+            # FIXED: Use SMTP_SSL for Railway (port 465)
             if SMTP_PORT == 465:
-                success = send_email_with_ssl(to_emails, subject, body)
+                print("🔒 Using SSL encryption (port 465)...")
+                with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=15) as smtp:
+                    print("✅ Connected to SMTP SSL server")
+                    smtp.ehlo()
+                    print("✅ EHLO complete")
+                    
+                    print("🔐 Attempting login...")
+                    smtp.login(SMTP_USER, SMTP_PASS)
+                    print("✅ Login successful")
+                    
+                    print("📤 Sending message...")
+                    smtp.send_message(msg)
+                    print("✅ Message sent")
             elif SMTP_PORT == 587:
-                success = send_email_with_starttls(to_emails, subject, body)
+                # Fallback for port 587 (not recommended on Railway)
+                print("⚠️ Using STARTTLS (port 587) - may be blocked on Railway")
+                with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as smtp:
+                    print("✅ Connected to SMTP server")
+                    smtp.ehlo()
+                    print("✅ EHLO complete")
+                    
+                    print("🔒 Starting TLS encryption...")
+                    smtp.starttls()
+                    print("✅ TLS started")
+                    
+                    print("🔐 Attempting login...")
+                    smtp.login(SMTP_USER, SMTP_PASS)
+                    print("✅ Login successful")
+                    
+                    print("📤 Sending message...")
+                    smtp.send_message(msg)
+                    print("✅ Message sent")
             else:
                 print(f"❌ Unsupported SMTP port: {SMTP_PORT}")
+                return False
             
-            if success:
-                print(f"🎉 Email successfully sent to {to_emails}")
-            else:
-                print(f"❌ Failed to send email to {to_emails}")
-            
-            print(f"🔧 DEBUG EMAIL END {'='*42}")
-            return success
+            print(f"🎉 Email successfully sent to {to_emails}")
+            print(f"🔧 DEBUG EMAIL END ============================")
+            return True
             
         except smtplib.SMTPAuthenticationError as e:
             print(f"❌ SMTP Authentication Error: {e}")
             print("Check: 1) Gmail App Password 2) Less secure app access")
+        except smtplib.SMTPException as e:
+            print(f"❌ SMTP Error: {type(e).__name__}: {e}")
+        except ConnectionError as e:
+            print(f"❌ Connection Error: {e}")
+            print("Railway may be blocking SMTP. Try port 465 with SSL.")
         except Exception as e:
             print(f"❌ Unexpected Error: {type(e).__name__}: {e}")
+            import traceback
             print("Full traceback:")
             print(traceback.format_exc())
         finally:
-            print(f"🔧 DEBUG EMAIL END {'='*42}")
+            print(f"🔧 DEBUG EMAIL END ============================")
             return False
     
     thread = threading.Thread(target=send)
@@ -195,11 +140,13 @@ def root():
 
 @app.route("/contacts/<device_id>", methods=["POST"])
 def save_contacts(device_id):
-    """Save contacts for a device or user."""
+    """
+    Save contacts for a device or user.
+    Body JSON: {"emails": ["a@example.com","b@example.com"]}
+    """
     try:
         data = request.get_json() or {}
         emails = data.get("emails", [])
-        
         if not isinstance(emails, list):
             return jsonify({"error": "emails must be a list"}), 400
 
@@ -218,7 +165,7 @@ def get_contacts(device_id):
 
 @app.route("/ingest", methods=["POST"])
 def ingest():
-    """Endpoint for Raspberry Pi to POST sensor data."""
+    """Endpoint for Raspberry Pi to POST sensor data"""
     try:
         data = request.get_json() or {}
         print(f"📥 Received data from device: {data.get('device_id', 'unknown')}")
@@ -226,21 +173,21 @@ def ingest():
         device = str(data.get("device_id", "default"))
         hr = data.get("heart_rate")
         
-        # Process sensor data
+        # Pi sends acc_x, acc_y, acc_z separately
         acc = {
             "x": data.get("acc_x"),
             "y": data.get("acc_y"), 
             "z": data.get("acc_z")
         }
         
-        gps = {
-            "lat": data.get("gps_lat"), 
-            "lon": data.get("gps_lon")
-        }
+        gps = {"lat": data.get("gps_lat"), "lon": data.get("gps_lon")}
         
-        # Handle timestamp
+        # Handle Pi's string timestamp
         ts = data.get("timestamp")
-        if not (ts and isinstance(ts, str)):
+        if ts and isinstance(ts, str):
+            # Pi sends format: "2024-12-19 10:30:00" - keep as string
+            pass
+        else:
             ts = data.get("timestamp", int(time.time()))
         
         # Save latest data
@@ -268,7 +215,28 @@ def ingest():
             contacts = load_json(CONTACTS_FILE, {}).get(device, [])
             if contacts:
                 subject = f"🚨 ALERT: High Stress Detected (HR: {hr} BPM)"
-                body = create_alert_body(device, hr, data, gps)
+                body = f"""
+🚨 EMERGENCY STRESS ALERT
+
+Device: {device}
+Heart Rate: {hr} BPM (Threshold: {HR_THRESHOLD} BPM)
+Stress Level: {data.get('stress_level', 'Unknown')}
+Stress Score: {data.get('stress_score', 0)}/100
+Time: {data.get('timestamp', 'Unknown')}
+"""
+                
+                if gps.get("lat") and gps.get("lon"):
+                    body += f"📍 Location: https://maps.google.com/?q={gps['lat']},{gps['lon']}\n"
+                
+                body += f"""
+⚠️ Immediate Action Recommended:
+1. Check on the person immediately
+2. Ensure they are in a safe location
+3. Help them practice deep breathing
+4. Contact emergency services if needed
+
+This alert was sent by your Stress Detection System.
+"""
                 
                 print(f"🚨 High stress alert triggered for {device} (HR: {hr} ≥ {HR_THRESHOLD})")
                 print(f"   Attempting to send email to: {contacts}")
@@ -290,34 +258,11 @@ def ingest():
         print(traceback.format_exc())
         return jsonify({"ok": False, "error": str(e)}), 500
 
-def create_alert_body(device: str, hr: float, data: Dict, gps: Dict) -> str:
-    """Create alert email body."""
-    body = f"""🚨 EMERGENCY STRESS ALERT
-
-Device: {device}
-Heart Rate: {hr} BPM (Threshold: {HR_THRESHOLD} BPM)
-Stress Level: {data.get('stress_level', 'Unknown')}
-Stress Score: {data.get('stress_score', 0)}/100
-Time: {data.get('timestamp', 'Unknown')}
-"""
-    
-    if gps.get("lat") and gps.get("lon"):
-        body += f"📍 Location: https://maps.google.com/?q={gps['lat']},{gps['lon']}\n"
-    
-    body += f"""
-⚠️ Immediate Action Recommended:
-1. Check on the person immediately
-2. Ensure they are in a safe location
-3. Help them practice deep breathing
-4. Contact emergency services if needed
-
-This alert was sent by your Stress Detection System.
-"""
-    return body
-
 @app.route("/notify", methods=["POST"])
 def notify():
-    """Manual notify endpoint from frontend."""
+    """
+    Manual notify endpoint from frontend.
+    """
     try:
         data = request.get_json() or {}
         device = str(data.get("device_id", "default"))
