@@ -21,7 +21,7 @@ SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
 
 # Threshold for "high stress"
-HR_THRESHOLD = int(os.getenv("HR_THRESHOLD", 105))
+HR_THRESHOLD = int(os.getenv("HR_THRESHOLD", 85))
 
 # Data files
 CONTACTS_FILE = "contacts.json"  # stores contact emails per user/device
